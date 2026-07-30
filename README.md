@@ -4,7 +4,7 @@
 Paper: "Hidden Bottlenecks in the Rare Earth Supply Chain: Myanmar,
         China's Processing Hub, and Multilayer Network Vulnerability"
 Author: Sana Younas, University of Portsmouth
-Submitted to: Journal of Cleaner Production, July 2026
+Submitted to: Energy Policy, July 2026
 
 --------------------------------------------------------------------
 RAW DATA — DOWNLOAD REQUIRED
