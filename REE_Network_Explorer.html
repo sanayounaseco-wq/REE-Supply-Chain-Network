@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>REE Supply Chain — Multilayer Network Explorer (2023)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; height: 100vh; overflow: hidden; }
+#app { display: flex; height: 100vh; }
+#sidebar {
+  width: 280px; min-width: 280px; background: #161b22; border-right: 1px solid #30363d;
+  display: flex; flex-direction: column; overflow-y: auto; padding: 16px; gap: 14px;
+}
+h1 { font-size: 13px; font-weight: 600; color: #58a6ff; line-height: 1.4; }
+.subtitle { font-size: 11px; color: #8b949e; }
+.section-title { font-size: 11px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+.layer-btn {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-radius: 6px; border: 1px solid #30363d; cursor: pointer;
+  font-size: 12px; background: #21262d; color: #c9d1d9;
+  transition: all .15s; user-select: none;
+}
+.layer-btn:hover { border-color: #58a6ff; }
+.layer-btn.active { background: #1f3a5f; border-color: #388bfd; color: #fff; }
+.layer-btn .dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.legend-item { display:flex; align-items:center; gap:8px; font-size:11px; color:#8b949e; }
+.legend-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+#tooltip {
+  position: fixed; pointer-events: none; display: none;
+  background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+  padding: 10px 13px; font-size: 12px; color: #c9d1d9; max-width: 240px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.6); z-index: 999; line-height: 1.6;
+}
+#tooltip strong { color: #fff; font-size: 13px; }
+#tooltip .tip-row { display:flex; justify-content:space-between; gap: 12px; }
+#tooltip .tip-val { color: #58a6ff; font-weight: 600; }
+#tooltip .tip-note { font-size:10px; color:#ff7b72; margin-top:4px; }
+#canvas { flex: 1; position: relative; }
+svg { width:100%; height:100%; }
+.link { stroke-opacity: 0.45; }
+.link.faded { stroke-opacity: 0.06; }
+.node circle { stroke-width: 1.5; cursor: pointer; }
+.node.faded circle { opacity: 0.15; }
+.node.faded text { opacity: 0.1; }
+.node text { font-size: 10px; fill: #e6edf3; pointer-events: none; text-shadow: 0 1px 3px #000; }
+.node.highlighted circle { stroke-width: 3; filter: drop-shadow(0 0 6px currentColor); }
+#stats-panel {
+  background: #21262d; border-radius: 8px; padding: 10px 12px; font-size: 11px; line-height: 1.8;
+}
+#stats-panel .stat-row { display:flex; justify-content:space-between; }
+#stats-panel .stat-val { color: #58a6ff; font-weight: 600; }
+.divider { height: 1px; background: #30363d; }
+.hint { font-size:10px; color:#6e7681; line-height:1.5; }
+#search {
+  width:100%; padding:6px 10px; background:#0d1117; border:1px solid #30363d;
+  border-radius:6px; color:#c9d1d9; font-size:12px; outline:none;
+}
+#search:focus { border-color:#58a6ff; }
+</style>
+</head>
+<body>
+<div id="app">
+<div id="sidebar">
+  <div>
+    <h1>REE Supply Chain<br>Multilayer Network Explorer</h1>
+    <div class="subtitle">BACI HS12 · 2023 · 51 countries · 180 trade flows</div>
+  </div>
+
+  <div>
+    <div class="section-title">Search country</div>
+    <input id="search" type="text" placeholder="e.g. China, Japan, Myanmar…">
+  </div>
+
+  <div>
+    <div class="section-title">Layer visibility</div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <div class="layer-btn active" data-layer="1">
+        <div class="dot" style="background:#2E75B6"></div>
+        L1 — Upstream ores (HS 261790)
+      </div>
+      <div class="layer-btn active" data-layer="2">
+        <div class="dot" style="background:#C00000"></div>
+        L2 — Midstream compounds (HS 284690)
+      </div>
+      <div class="layer-btn active" data-layer="3">
+        <div class="dot" style="background:#4a9150"></div>
+        L3 — Downstream magnets (HS 850511)
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-title">Node legend</div>
+    <div style="display:flex;flex-direction:column;gap:5px;">
+      <div class="legend-item"><div class="legend-dot" style="background:#ff4444;border:2px solid #ff8888"></div>China (CHN) — dominant chokepoint</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ff8c00;border:2px solid #ffb347"></div>Myanmar (MMR) — hidden bottleneck</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#388bfd;border:2px solid #79c0ff"></div>MSP member countries</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#6e7681;border:2px solid #8b949e"></div>Other countries</div>
+    </div>
+    <div class="hint" style="margin-top:8px;">Node size = betweenness centrality (max across layers). Myanmar sized by L2 export volume.</div>
+  </div>
+
+  <div>
+    <div class="section-title">Network stats (2023)</div>
+    <div id="stats-panel">
+      <div class="stat-row"><span>China L2 betweenness</span><span class="stat-val">0.356</span></div>
+      <div class="stat-row"><span>China L3 betweenness</span><span class="stat-val">0.581</span></div>
+      <div class="stat-row"><span>Myanmar → China L2 share</span><span class="stat-val">66.8%</span></div>
+      <div class="stat-row"><span>Countries in network</span><span class="stat-val">51</span></div>
+      <div class="stat-row"><span>Trade flows shown</span><span class="stat-val">180</span></div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  <div class="hint">
+    <b style="color:#c9d1d9">Interactions:</b><br>
+    • Click node to highlight connections<br>
+    • Hover for country detail panel<br>
+    • Scroll to zoom · drag to pan<br>
+    • Click canvas background to deselect
+  </div>
+</div>
+
+<div id="canvas">
+  <svg id="svg"></svg>
+</div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+const RAW = {"nodes":[{"id":"AUS","name":"Australia","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.0531171372658652,"btw_l2":0.0167540792540792,"btw_l3":0.0119494708091498,"str_out_l1":4021076.0,"str_out_l2":965685.0,"str_out_l3":4445277.0,"max_btw":0.0531171372658652,"max_out":4445277.0},{"id":"CHN","name":"China","is_china":true,"is_msp":false,"is_myanmar":false,"btw_l1":0.3114807566862361,"btw_l2":0.3564005439005439,"btw_l3":0.5805979612739599,"str_out_l1":842537.0,"str_out_l2":483380324.0,"str_out_l3":3637294614.0,"max_btw":0.5805979612739599,"max_out":3637294614.0},{"id":"BRA","name":"Brazil","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0013046314416177,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":415093.0,"str_out_l2":95250.0,"str_out_l3":806997.0,"max_btw":0.0013046314416177,"max_out":806997.0},{"id":"ZWE","name":"ZWE","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":3551.0,"str_out_l2":0.0,"str_out_l3":13.0,"max_btw":0.0,"max_out":3551.0},{"id":"NGA","name":"Nigeria","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0060106234274531,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":3663370.0,"str_out_l2":0.0,"str_out_l3":130.0,"max_btw":0.0060106234274531,"max_out":3663370.0},{"id":"CAN","name":"Canada","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.296291119187401,"btw_l2":0.013548951048951,"btw_l3":0.0119738574842705,"str_out_l1":257007457.0,"str_out_l2":720835.0,"str_out_l3":7955792.0,"max_btw":0.296291119187401,"max_out":257007457.0},{"id":"USA","name":"USA","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.2301742614854161,"btw_l2":0.1862859362859363,"btw_l3":0.1557576939960006,"str_out_l1":7218671.0,"str_out_l2":362736434.0,"str_out_l3":118174721.0,"max_btw":0.2301742614854161,"max_out":362736434.0},{"id":"MOZ","name":"Mozambique","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":700580.0,"str_out_l2":0.0,"str_out_l3":2010.0,"max_btw":0.0,"max_out":700580.0},{"id":"HKG","name":"Hong Kong","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0133547008547008,"btw_l3":0.0146807784226698,"str_out_l1":329.0,"str_out_l2":3264458.0,"str_out_l3":3959502.0,"max_btw":0.0146807784226698,"max_out":3959502.0},{"id":"ZAF","name":"South Africa","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0831702544031311,"btw_l2":0.0301087801087801,"btw_l3":0.0363849192801053,"str_out_l1":16004472.0,"str_out_l2":6379540.0,"str_out_l3":1293060.0,"max_btw":0.0831702544031311,"max_out":16004472.0},{"id":"DEU","name":"Germany","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.2042214145932345,"btw_l2":0.0675990675990676,"btw_l3":0.4383504852948349,"str_out_l1":169678.0,"str_out_l2":15999598.0,"str_out_l3":227073578.0,"max_btw":0.4383504852948349,"max_out":227073578.0},{"id":"KOR","name":"South Korea","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.0054514956667598,"btw_l2":0.0133061383061383,"btw_l3":0.0,"str_out_l1":2137.0,"str_out_l2":26738283.0,"str_out_l3":35761789.0,"max_btw":0.0133061383061383,"max_out":35761789.0},{"id":"RUS","name":"Russia","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.005824247507222,"btw_l2":0.0062160062160062,"btw_l3":0.0391162268936253,"str_out_l1":762914.0,"str_out_l2":9093549.0,"str_out_l3":423108.0,"max_btw":0.0391162268936253,"max_out":9093549.0},{"id":"MEX","name":"Mexico","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0246482154505637,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":1647194.0,"str_out_l2":195.0,"str_out_l3":17836541.0,"max_btw":0.0246482154505637,"max_out":17836541.0},{"id":"JPN","name":"Japan","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.024601621470506,"btw_l2":0.2134809634809635,"btw_l3":0.0711115446520021,"str_out_l1":22447.0,"str_out_l2":203435615.0,"str_out_l3":466585826.0,"max_btw":0.2134809634809635,"max_out":466585826.0},{"id":"DZA","name":"DZA","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":196.0,"str_out_l2":0.0,"str_out_l3":0.0,"max_btw":0.0,"max_out":196.0},{"id":"POL","name":"Poland","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0075482247693597,"btw_l2":0.0267094017094017,"btw_l3":0.0,"str_out_l1":496253.0,"str_out_l2":2993868.0,"str_out_l3":4258061.0,"max_btw":0.0267094017094017,"max_out":4258061.0},{"id":"COD","name":"COD","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0120212468549063,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":103490143.0,"str_out_l2":0.0,"str_out_l3":307.0,"max_btw":0.0120212468549063,"max_out":103490143.0},{"id":"ARE","name":"UAE","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0493430248811853,"btw_l2":0.0135975135975135,"btw_l3":0.0426522947861288,"str_out_l1":117146.0,"str_out_l2":11996050.0,"str_out_l3":1612780.0,"max_btw":0.0493430248811853,"max_out":11996050.0},{"id":"FRA","name":"France","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.1358214518684186,"btw_l2":0.0804195804195804,"btw_l3":0.0698922108959664,"str_out_l1":423493.0,"str_out_l2":44173977.0,"str_out_l3":23830209.0,"max_btw":0.1358214518684186,"max_out":44173977.0},{"id":"IND","name":"India","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.0319634703196347,"btw_l2":0.0627428127428127,"btw_l3":0.0473345364093059,"str_out_l1":109699.0,"str_out_l2":55891701.0,"str_out_l3":14137291.0,"max_btw":0.0627428127428127,"max_out":55891701.0},{"id":"KEN","name":"Kenya","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0034479409479409,"btw_l3":0.0,"str_out_l1":36614187.0,"str_out_l2":18690.0,"str_out_l3":2113.0,"max_btw":0.0034479409479409,"max_out":36614187.0},{"id":"GRC","name":"Greece","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0118348709346752,"btw_l2":0.0,"btw_l3":0.0049017216992635,"str_out_l1":33250477.0,"str_out_l2":2461.0,"str_out_l3":167456.0,"max_btw":0.0118348709346752,"max_out":33250477.0},{"id":"NAM","name":"NAM","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0113223371540397,"btw_l2":0.0033993783993783,"btw_l3":0.0049017216992635,"str_out_l1":98334.0,"str_out_l2":180.0,"str_out_l3":815.0,"max_btw":0.0113223371540397,"max_out":98334.0},{"id":"MYS","name":"Malaysia","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0054514956667598,"btw_l2":0.0227272727272727,"btw_l3":0.0216065941569526,"str_out_l1":476.0,"str_out_l2":524958931.0,"str_out_l3":93219710.0,"max_btw":0.0227272727272727,"max_out":524958931.0},{"id":"ITA","name":"Italy","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.0757618115739446,"btw_l2":0.0847416472416472,"btw_l3":0.0568453397063844,"str_out_l1":1023042.0,"str_out_l2":9744443.0,"str_out_l3":42881079.0,"max_btw":0.0847416472416472,"max_out":42881079.0},{"id":"VNM","name":"Vietnam","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":4.659398005777654e-05,"btw_l2":0.0175796425796425,"btw_l3":0.009974150124372,"str_out_l1":15176318.0,"str_out_l2":51802495.0,"str_out_l3":376841947.0,"max_btw":0.0175796425796425,"max_out":376841947.0},{"id":"NLD","name":"Netherlands","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.2190848942316652,"btw_l2":0.0994560994560994,"btw_l3":0.077427693508267,"str_out_l1":9686298.0,"str_out_l2":17334173.0,"str_out_l3":42406339.0,"max_btw":0.2190848942316652,"max_out":42406339.0},{"id":"TUR","name":"Turkey","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0522318516447675,"btw_l2":0.0165112665112665,"btw_l3":0.0035604545676242,"str_out_l1":539147.0,"str_out_l2":913964.0,"str_out_l3":2144089.0,"max_btw":0.0522318516447675,"max_out":2144089.0},{"id":"THA","name":"Thailand","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0060106234274531,"btw_l2":0.0100524475524475,"btw_l3":0.0049017216992635,"str_out_l1":4742.0,"str_out_l2":5227346.0,"str_out_l3":39610053.0,"max_btw":0.0100524475524475,"max_out":39610053.0},{"id":"MDG","name":"MDG","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":312198.0,"str_out_l2":0.0,"str_out_l3":901.0,"max_btw":0.0,"max_out":312198.0},{"id":"CHE","name":"Switzerland","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0293615568453397,"str_out_l1":2634.0,"str_out_l2":487367.0,"str_out_l3":60297756.0,"max_btw":0.0293615568453397,"max_out":60297756.0},{"id":"RWA","name":"RWA","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":8565587.0,"str_out_l2":0.0,"str_out_l3":0.0,"max_btw":0.0,"max_out":8565587.0},{"id":"BEL","name":"Belgium","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0067987567987567,"btw_l3":0.0259718090035604,"str_out_l1":34973.0,"str_out_l2":477573.0,"str_out_l3":2177225.0,"max_btw":0.0259718090035604,"max_out":2177225.0},{"id":"MAR","name":"Morocco","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0163544870002795,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":14385.0,"str_out_l2":47.0,"str_out_l3":20750.0,"max_btw":0.0163544870002795,"max_out":20750.0},{"id":"ESP","name":"Spain","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.3902711769639362,"btw_l2":0.0100524475524475,"btw_l3":0.0308003706774618,"str_out_l1":248282.0,"str_out_l2":249381.0,"str_out_l3":5340507.0,"max_btw":0.3902711769639362,"max_out":5340507.0},{"id":"GBR","name":"UK","is_china":false,"is_msp":true,"is_myanmar":false,"btw_l1":0.0092722020314975,"btw_l2":0.0168026418026418,"btw_l3":0.0510900843778959,"str_out_l1":94488.0,"str_out_l2":5191433.0,"str_out_l3":23771060.0,"max_btw":0.0510900843778959,"max_out":23771060.0},{"id":"S19","name":"S19","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0384866275277234,"btw_l2":0.0098096348096348,"btw_l3":0.0156074720772569,"str_out_l1":352966.0,"str_out_l2":2905219.0,"str_out_l3":26633275.0,"max_btw":0.0384866275277234,"max_out":26633275.0},{"id":"MMR","name":"Myanmar","is_china":false,"is_msp":false,"is_myanmar":true,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":1441901598.0,"str_out_l3":29878.0,"max_btw":0.0,"max_out":1441901598.0},{"id":"LAO","name":"Laos","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":103657219.0,"str_out_l3":10028.0,"max_btw":0.0,"max_out":103657219.0},{"id":"PHL","name":"Philippines","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0725524475524475,"btw_l3":0.0002682534263278,"str_out_l1":0.0,"str_out_l2":5157587.0,"str_out_l3":492467805.0,"max_btw":0.0725524475524475,"max_out":492467805.0},{"id":"NOR","name":"Norway","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0033508158508158,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":18840311.0,"str_out_l3":1601587.0,"max_btw":0.0033508158508158,"max_out":18840311.0},{"id":"IRL","name":"IRL","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":5829.0,"str_out_l3":658010.0,"max_btw":0.0,"max_out":658010.0},{"id":"EST","name":"Estonia","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0033993783993783,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":37266880.0,"str_out_l3":137674.0,"max_btw":0.0033993783993783,"max_out":37266880.0},{"id":"SGP","name":"Singapore","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":913101.0,"str_out_l3":8129223.0,"max_btw":0.0,"max_out":8129223.0},{"id":"KAZ","name":"Kazakhstan","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0134518259518259,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":7201656.0,"str_out_l3":259368.0,"max_btw":0.0134518259518259,"max_out":7201656.0},{"id":"MKD","name":"MKD","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":52584.0,"str_out_l3":2033.0,"max_btw":0.0,"max_out":52584.0},{"id":"HUN","name":"Hungary","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0341657318441203,"str_out_l1":0.0,"str_out_l2":0.0,"str_out_l3":3932434.0,"max_btw":0.0341657318441203,"max_out":3932434.0},{"id":"CZE","name":"Czech Rep.","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":0.0,"str_out_l3":15577986.0,"max_btw":0.0,"max_out":15577986.0},{"id":"DNK","name":"Denmark","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0181680729649319,"str_out_l1":0.0,"str_out_l2":0.0,"str_out_l3":3610128.0,"max_btw":0.0181680729649319,"max_out":3610128.0},{"id":"SVN","name":"SVN","is_china":false,"is_msp":false,"is_myanmar":false,"btw_l1":0.0,"btw_l2":0.0,"btw_l3":0.0,"str_out_l1":0.0,"str_out_l2":0.0,"str_out_l3":15315877.0,"max_btw":0.0,"max_out":15315877.0}],"links":[{"source":"AUS","target":"CHN","value":13005919668.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"BRA","target":"CHN","value":554252896.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ZWE","target":"CHN","value":485338645.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"NGA","target":"CHN","value":292596903.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CAN","target":"CHN","value":256555584.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"USA","target":"CHN","value":172378075.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ZWE","target":"MOZ","value":169207584.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ZWE","target":"HKG","value":117484026.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ZAF","target":"CHN","value":96239530.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"AUS","target":"DEU","value":65000559.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"AUS","target":"KOR","value":59826313.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CAN","target":"CHN","value":51202167.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"RUS","target":"CHN","value":50236177.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"MEX","target":"JPN","value":48709852.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"DZA","target":"POL","value":48070429.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"COD","target":"ARE","value":42367629.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"AUS","target":"FRA","value":42352044.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"IND","target":"JPN","value":40517147.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"KEN","target":"JPN","value":36614126.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"GRC","target":"NAM","value":33237528.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ARE","target":"IND","value":30291002.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"JPN","target":"USA","value":27064033.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CHN","target":"JPN","value":26071291.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CHN","target":"MYS","value":22277400.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ARE","target":"CHN","value":20970133.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"NAM","target":"CHN","value":20535643.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"DEU","target":"ITA","value":20079650.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CHN","target":"USA","value":18873699.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"VNM","target":"CHN","value":18558392.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"USA","target":"NLD","value":17297670.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"MEX","target":"USA","value":17267081.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"COD","target":"CHN","value":17092775.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"NLD","target":"TUR","value":16883671.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"COD","target":"THA","value":16274909.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"USA","target":"CAN","value":16199273.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"RUS","target":"HKG","value":15965033.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"MDG","target":"CHN","value":15922165.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"DEU","target":"CHE","value":15466243.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"RWA","target":"CHN","value":15276420.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"VNM","target":"JPN","value":15175854.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"AUS","target":"BEL","value":15010281.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CHN","target":"IND","value":14904542.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"MAR","target":"POL","value":14872531.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"THA","target":"CHN","value":14716502.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"DEU","target":"NLD","value":14490457.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ESP","target":"MEX","value":14353460.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ZAF","target":"JPN","value":13320301.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"VNM","target":"JPN","value":13243800.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CAN","target":"USA","value":13235743.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"AUS","target":"USA","value":13172378.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"USA","target":"GBR","value":12973934.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"USA","target":"MEX","value":12743451.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CHN","target":"S19","value":12601827.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CHE","target":"FRA","value":12437929.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"IND","target":"TUR","value":11827897.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ITA","target":"TUR","value":11822866.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"COD","target":"HKG","value":11652789.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CHN","target":"ITA","value":11389610.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"ZWE","target":"ZAF","value":10742478.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"CHN","target":"KOR","value":10709723.0,"layer":1,"color":"#2E75B6","label":"L1 Upstream (ores)"},{"source":"MMR","target":"CHN","value":1441901598.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"USA","target":"CHN","value":317318945.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"JPN","value":211972830.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"JPN","value":194170338.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"MYS","target":"CHN","value":194046594.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"MYS","target":"JPN","value":175859371.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"AUS","target":"MYS","value":149847143.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"USA","value":108150104.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"LAO","target":"CHN","value":103657219.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"VNM","target":"JPN","value":100273754.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"MYS","target":"THA","value":75059502.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"MYS","target":"VNM","value":64925677.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"PHL","value":59477378.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"VNM","value":52285704.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"VNM","target":"CHN","value":45875578.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"THA","target":"JPN","value":44506004.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"KOR","value":37826549.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"FRA","target":"JPN","value":34975494.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"VNM","value":32516203.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"IND","target":"VNM","value":29647867.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"CHN","value":27543905.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"USA","value":20976913.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"MYS","target":"THA","value":20257056.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"FRA","target":"USA","value":20066226.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"DEU","value":20024809.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"NOR","target":"IRL","value":18767074.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"RUS","target":"EST","value":18040321.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"VNM","target":"CHN","value":17372360.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"S19","value":17061807.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"EST","target":"JPN","value":16703542.000000002,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"THA","value":16198839.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"FRA","value":15261137.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"USA","value":14096736.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"USA","target":"PHL","value":13873185.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"RUS","value":12156167.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"ARE","target":"TUR","value":11432864.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"KOR","value":10805170.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"KOR","value":10580829.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"NLD","target":"DEU","value":10511339.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"VNM","value":10169514.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"THA","target":"VNM","value":9443334.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"S19","value":9256548.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"KOR","value":9235142.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"FRA","target":"KOR","value":9130068.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"SGP","value":8794217.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"USA","value":8690092.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"DEU","value":8509796.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"FRA","target":"DEU","value":8126592.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"KOR","target":"PHL","value":7817699.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"S19","target":"KOR","value":7294578.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"USA","target":"S19","value":7275145.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"KAZ","target":"CHN","value":7196743.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"IND","target":"DEU","value":7077744.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"JPN","value":6817055.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"KOR","target":"NOR","value":6626775.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"RUS","target":"TUR","value":6604022.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"JPN","target":"MYS","value":6462653.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"FRA","target":"MKD","value":5760552.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"MYS","target":"ESP","value":5602962.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"DEU","target":"MKD","value":5523783.0,"layer":2,"color":"#C00000","label":"L2 Midstream (compounds)"},{"source":"CHN","target":"DEU","value":634676367.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"USA","value":449168429.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"KOR","value":408838538.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"PHL","target":"JPN","value":322361148.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"VNM","value":250349680.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"MEX","value":227283495.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"JPN","target":"PHL","value":214365428.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"JPN","value":193817645.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"VNM","target":"JPN","value":164260902.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"IND","value":159048030.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"VNM","value":157182712.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"FRA","value":146459493.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"VNM","target":"PHL","value":142778220.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"POL","value":141479247.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"ITA","value":107065859.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"DEU","value":102186769.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"THA","value":98718053.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"S19","value":72002362.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"PHL","target":"KOR","value":68365875.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"CHE","value":61991571.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"USA","value":57685748.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"KOR","value":57130463.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"NLD","value":55261204.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"JPN","target":"CHN","value":52784935.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"HUN","value":52129905.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"JPN","target":"MYS","value":51269712.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"ITA","value":51160621.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"MEX","value":50647903.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"THA","value":49573065.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"JPN","value":48933644.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"MYS","target":"JPN","value":48696412.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"PHL","value":47698645.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"RUS","value":47507279.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"CZE","value":44855449.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"IND","value":43770253.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"GBR","value":39142304.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"MYS","value":37942233.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"USA","target":"MEX","value":37452086.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHE","target":"DEU","value":35572863.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"JPN","target":"THA","value":35047668.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"POL","value":32832211.000000004,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"FRA","value":31936066.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"PHL","target":"DEU","value":30521461.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"DNK","value":28912635.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"DEU","target":"DNK","value":28612424.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"HKG","value":28573344.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"PHL","target":"CHN","value":28197167.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"JPN","target":"USA","value":27987709.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"TUR","value":27554481.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"DEU","target":"POL","value":27117169.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"VNM","target":"CHN","value":26905922.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"SVN","value":24934665.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"JPN","target":"VNM","value":24657070.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"ESP","value":23632910.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"JPN","target":"CHN","value":23226536.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"USA","target":"FRA","value":22982693.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"KOR","target":"CHN","value":22880363.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"THA","target":"JPN","value":22567186.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"ESP","value":22311070.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"},{"source":"CHN","target":"BRA","value":21724949.0,"layer":3,"color":"#375623","label":"L3 Downstream (magnets)"}],"year":2023,"max_btw":0.5805979612739599,"max_out":3637294614.0};
+const nodes = RAW.nodes.map(d => ({...d}));
+const links = RAW.links.map(d => ({...d}));
+const maxBtw = RAW.max_btw;
+const maxOut = RAW.max_out;
+
+const LAYER_VIS = {1: true, 2: true, 3: true};
+const LAYER_COLORS = {1:"#2E75B6", 2:"#C00000", 3:"#4a9150"};
+
+let selectedNode = null;
+
+// --- node radius ---
+function nodeRadius(d) {
+  if (d.is_china)   return 36;
+  if (d.is_myanmar) return 22;   // sized by L2 out-strength importance
+  const r = 5 + 28 * (d.max_btw / maxBtw);
+  return Math.max(5, r);
+}
+
+// --- node color ---
+function nodeColor(d) {
+  if (d.is_china)   return "#ff4444";
+  if (d.is_myanmar) return "#ff8c00";
+  if (d.is_msp)     return "#388bfd";
+  return "#6e7681";
+}
+function nodeStroke(d) {
+  if (d.is_china)   return "#ff8888";
+  if (d.is_myanmar) return "#ffb347";
+  if (d.is_msp)     return "#79c0ff";
+  return "#8b949e";
+}
+
+// --- link width ---
+function linkWidth(d) {
+  return 1 + 5 * Math.pow(d.value / maxOut, 0.35);
+}
+
+// --- show label if large enough ---
+function showLabel(d) {
+  return nodeRadius(d) >= 10 || d.is_myanmar || d.is_china;
+}
+
+// ─── SVG + zoom ────────────────────────────────────────────────────
+const svg = d3.select("#svg");
+const g   = svg.append("g");
+
+const zoom = d3.zoom()
+  .scaleExtent([0.2, 8])
+  .on("zoom", e => g.attr("transform", e.transform));
+svg.call(zoom);
+
+svg.on("click", (e) => {
+  if (e.target === svg.node() || e.target.tagName === "svg") {
+    selectedNode = null;
+    refreshHighlight();
+  }
+});
+
+// ─── Simulation ────────────────────────────────────────────────────
+const width  = () => document.getElementById("canvas").clientWidth;
+const height = () => document.getElementById("canvas").clientHeight;
+
+const sim = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(links).id(d => d.id).distance(d => {
+    // shorter links for large-value flows
+    const base = 80;
+    return base + 60 / Math.pow(d.value / maxOut, 0.2);
+  }).strength(0.4))
+  .force("charge", d3.forceManyBody().strength(d => -180 - nodeRadius(d) * 5))
+  .force("center", d3.forceCenter(width()/2, height()/2))
+  .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + 5));
+
+// ─── Draw links ────────────────────────────────────────────────────
+const linkSel = g.append("g").attr("class","links")
+  .selectAll("line")
+  .data(links)
+  .join("line")
+  .attr("class","link")
+  .attr("stroke", d => LAYER_COLORS[d.layer])
+  .attr("stroke-width", d => linkWidth(d));
+
+// ─── Draw nodes ────────────────────────────────────────────────────
+const nodeSel = g.append("g").attr("class","nodes")
+  .selectAll("g")
+  .data(nodes)
+  .join("g")
+  .attr("class","node")
+  .call(
+    d3.drag()
+      .on("start", (e,d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on("drag",  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on("end",   (e,d) => { if (!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; })
+  )
+  .on("click", (e,d) => {
+    e.stopPropagation();
+    selectedNode = (selectedNode === d.id) ? null : d.id;
+    refreshHighlight();
+  })
+  .on("mouseover", showTooltip)
+  .on("mousemove", moveTooltip)
+  .on("mouseout",  hideTooltip);
+
+nodeSel.append("circle")
+  .attr("r", d => nodeRadius(d))
+  .attr("fill", d => nodeColor(d))
+  .attr("stroke", d => nodeStroke(d))
+  .attr("fill-opacity", 0.88);
+
+nodeSel.filter(d => showLabel(d))
+  .append("text")
+  .attr("dy", d => nodeRadius(d) + 11)
+  .attr("text-anchor","middle")
+  .text(d => d.name || d.id);
+
+// ─── Simulation tick ───────────────────────────────────────────────
+sim.on("tick", () => {
+  linkSel
+    .attr("x1", d => d.source.x)
+    .attr("y1", d => d.source.y)
+    .attr("x2", d => d.target.x)
+    .attr("y2", d => d.target.y);
+  nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
+});
+
+// ─── Layer toggles ─────────────────────────────────────────────────
+document.querySelectorAll(".layer-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const layer = +btn.dataset.layer;
+    LAYER_VIS[layer] = !LAYER_VIS[layer];
+    btn.classList.toggle("active", LAYER_VIS[layer]);
+    applyLayerVisibility();
+  });
+});
+
+function applyLayerVisibility() {
+  linkSel.style("display", d => LAYER_VIS[d.layer] ? null : "none");
+}
+
+// ─── Highlight on click ────────────────────────────────────────────
+function refreshHighlight() {
+  if (!selectedNode) {
+    nodeSel.classed("faded", false).classed("highlighted", false);
+    linkSel.classed("faded", false);
+    return;
+  }
+  const connected = new Set([selectedNode]);
+  links.forEach(l => {
+    const s = l.source.id || l.source;
+    const t = l.target.id || l.target;
+    if (s === selectedNode || t === selectedNode) {
+      connected.add(s); connected.add(t);
+    }
+  });
+  nodeSel.classed("faded",       d => !connected.has(d.id))
+         .classed("highlighted", d => d.id === selectedNode);
+  linkSel.classed("faded", d => {
+    const s = d.source.id || d.source;
+    const t = d.target.id || d.target;
+    return s !== selectedNode && t !== selectedNode;
+  });
+}
+
+// ─── Tooltip ───────────────────────────────────────────────────────
+const tip = document.getElementById("tooltip");
+
+function fmtVal(v) {
+  if (v >= 1e9) return "$" + (v/1e9).toFixed(2) + "B";
+  if (v >= 1e6) return "$" + (v/1e6).toFixed(1) + "M";
+  if (v >= 1e3) return "$" + (v/1e3).toFixed(0) + "K";
+  return v > 0 ? "$" + v.toFixed(0) : "—";
+}
+
+function showTooltip(e, d) {
+  const role = d.is_china ? "🔴 Primary chokepoint" : d.is_myanmar ? "🟠 Hidden bottleneck (L2 feedstock)" : d.is_msp ? "🔵 MSP member" : "⚪ Other exporter/importer";
+  const myrNote = d.is_myanmar ? `<div class="tip-note">⚠ Supplies 66.8% of China's L2 feedstock. Betweenness ≈ 0 because exports only to China — not a hub, but a critical upstream supplier.</div>` : "";
+  tip.innerHTML = `
+    <strong>${d.name || d.id}</strong> (${d.id})<br>
+    <span style="font-size:10px;color:#8b949e">${role}</span>
+    <div style="margin-top:6px;border-top:1px solid #30363d;padding-top:6px;">
+      <div class="tip-row"><span>L1 betweenness</span><span class="tip-val">${(d.btw_l1*100).toFixed(2)}%</span></div>
+      <div class="tip-row"><span>L2 betweenness</span><span class="tip-val">${(d.btw_l2*100).toFixed(2)}%</span></div>
+      <div class="tip-row"><span>L3 betweenness</span><span class="tip-val">${(d.btw_l3*100).toFixed(2)}%</span></div>
+      <div style="margin-top:4px;border-top:1px solid #30363d;padding-top:4px;">
+      <div class="tip-row"><span>L1 exports (ores)</span><span class="tip-val">${fmtVal(d.str_out_l1)}</span></div>
+      <div class="tip-row"><span>L2 exports (compounds)</span><span class="tip-val">${fmtVal(d.str_out_l2)}</span></div>
+      <div class="tip-row"><span>L3 exports (magnets)</span><span class="tip-val">${fmtVal(d.str_out_l3)}</span></div>
+      </div>
+    </div>
+    ${myrNote}
+  `;
+  tip.style.display = "block";
+  moveTooltip(e);
+}
+
+function moveTooltip(e) {
+  const pad = 14;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const tipW = tip.offsetWidth, tipH = tip.offsetHeight;
+  if (x + tipW > window.innerWidth  - 8) x = e.clientX - tipW - pad;
+  if (y + tipH > window.innerHeight - 8) y = e.clientY - tipH - pad;
+  tip.style.left = x + "px";
+  tip.style.top  = y + "px";
+}
+
+function hideTooltip() { tip.style.display = "none"; }
+
+// ─── Search ────────────────────────────────────────────────────────
+document.getElementById("search").addEventListener("input", function() {
+  const q = this.value.toLowerCase().trim();
+  if (!q) { selectedNode = null; refreshHighlight(); return; }
+  const found = nodes.find(n => n.name.toLowerCase().includes(q) || n.id.toLowerCase().includes(q));
+  if (found) {
+    selectedNode = found.id;
+    refreshHighlight();
+    // pan to node
+    const t = d3.zoomTransform(svg.node());
+    const cx = width()/2, cy = height()/2;
+    svg.transition().duration(500)
+      .call(zoom.translateTo, found.x, found.y);
+  }
+});
+
+// ─── Initial center ────────────────────────────────────────────────
+window.addEventListener("resize", () => {
+  sim.force("center", d3.forceCenter(width()/2, height()/2));
+  sim.alpha(0.1).restart();
+});
+</script>
+</body>
+</html>
