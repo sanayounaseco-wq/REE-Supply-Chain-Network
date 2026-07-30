@@ -1,5 +1,5 @@
 [README.txt](https://github.com/user-attachments/files/30536728/README.txt)
-# REE-Supply-Shain-NetworkREADME — Replication Files
+# REE-Supply-Chain-NetworkREADME — Replication Files
 ==========================
 Paper: "Hidden Bottlenecks in the Rare Earth Supply Chain: Myanmar,
         China's Processing Hub, and Multilayer Network Vulnerability"
